@@ -147,28 +147,29 @@ function buildContracts(rawList) {
   const spotContracts    = mapped.filter(c => c.isSpot);
   const futuresContracts = mapped.filter(c => !c.isSpot);
 
-  // Group MCX futures by symbol. For each symbol, drop expired contracts
-  // and auto-select whichever remaining one expires soonest. This is the
-  // entire rollover mechanism — no dates or contract codes are ever
-  // hardcoded, so "Gold 05-Aug-26" silently becomes "Gold 05-Oct-26" the
-  // moment the provider's own feed drops the expired one, with zero
-  // code changes required on either end.
+  // Group MCX futures by symbol. Drop only genuinely expired contracts —
+  // everything else stays, tagged "near" (soonest expiry) or "far"
+  // (next one after). Auto-rollover still needs zero code changes: the
+  // moment a "near" contract's expiry passes, it drops out of `valid`
+  // on the next poll and whatever was "far" automatically becomes the
+  // new "near" — no dates or contract codes are ever hardcoded.
   const now = new Date();
   const bySymbol = {};
   futuresContracts.forEach(c => {
     (bySymbol[c.symbol] = bySymbol[c.symbol] || []).push(c);
   });
 
-  const nearestFutures = [];
+  const allFutures = [];
   Object.keys(bySymbol).forEach(symbol => {
     const valid = bySymbol[symbol].filter(c => c.expiryDate && c.expiryDate.getTime() >= now.getTime());
     if (!valid.length) return; // all contracts for this symbol have expired; skip until provider adds a new one
     valid.sort((a, b) => a.expiryDate - b.expiryDate);
-    nearestFutures.push(valid[0]);
+    valid.forEach((c, i) => { c.position = i === 0 ? 'near' : 'far'; });
+    allFutures.push(...valid);
   });
 
   const strip = c => { const { expiryDate, isSpot, ...rest } = c; return rest; };
-  return [...spotContracts.map(strip), ...nearestFutures.map(strip)];
+  return [...spotContracts.map(strip), ...allFutures.map(strip)];
 }
 
 // ── Handler ──────────────────────────────────────────────────────
